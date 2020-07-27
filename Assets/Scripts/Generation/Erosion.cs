@@ -3,7 +3,25 @@ using UnityEngine;
 
 public class Erosion : MonoBehaviour
 {
-    public void Erode(ComputeShader erosion, int numErosionIterations, int erosionBrushRadius, int mapSizeWithBorder, float[] noiseMap, int maxLifetime, float inertia, float sedimentCapacityFactor, float minSedimentCapacity, float depositSpeed, float erodeSpeed, float evaporateSpeed, float gravity, float startSpeed, float startWater)
+    [Header("Erosion Settings")]
+    public ComputeShader erosion;
+    public int numErosionIterations = 50000;
+    public int erosionBrushRadius = 3;
+
+    public int maxLifetime = 30;
+    public float sedimentCapacityFactor = 3;
+    public float minSedimentCapacity = .01f;
+    public float depositSpeed = 0.3f;
+    public float erodeSpeed = 0.3f;
+
+    public float evaporateSpeed = .01f;
+    public float gravity = 4;
+    public float startSpeed = 1;
+    public float startWater = 1;
+    [Range(0, 1)]
+    public float inertia = 0.3f;
+
+    public void Erode(int mapSize, float[] noiseMap)
     {
         int numThreads = numErosionIterations / 1024;
 
@@ -19,7 +37,7 @@ public class Erosion : MonoBehaviour
                 float sqrDst = brushX * brushX + brushY * brushY;
                 if (sqrDst < erosionBrushRadius * erosionBrushRadius)
                 {
-                    brushIndexOffsets.Add(brushY * mapSizeWithBorder + brushX);
+                    brushIndexOffsets.Add(brushY * mapSize + brushX);
                     float brushWeight = 1 - Mathf.Sqrt(sqrDst) / erosionBrushRadius;
                     weightSum += brushWeight;
                     brushWeights.Add(brushWeight);
@@ -43,9 +61,9 @@ public class Erosion : MonoBehaviour
         int[] randomIndices = new int[numErosionIterations];
         for (int i = 0; i < numErosionIterations; i++)
         {
-            int randomX = Random.Range(erosionBrushRadius, mapSizeWithBorder + erosionBrushRadius);
-            int randomY = Random.Range(erosionBrushRadius, mapSizeWithBorder + erosionBrushRadius);
-            randomIndices[i] = randomY * mapSizeWithBorder + randomX;
+            int randomX = Random.Range(erosionBrushRadius, mapSize + erosionBrushRadius);
+            int randomY = Random.Range(erosionBrushRadius, mapSize + erosionBrushRadius);
+            randomIndices[i] = randomY * mapSize + randomX;
         }
 
         // Send random indices to compute shader
@@ -60,7 +78,7 @@ public class Erosion : MonoBehaviour
 
         // Settings
         erosion.SetInt("borderSize", erosionBrushRadius);
-        erosion.SetInt("mapSize", mapSizeWithBorder);
+        erosion.SetInt("mapSize", mapSize);
         erosion.SetInt("brushLength", brushIndexOffsets.Count);
         erosion.SetInt("maxLifetime", maxLifetime);
         erosion.SetFloat("inertia", inertia);
@@ -83,4 +101,5 @@ public class Erosion : MonoBehaviour
         brushIndexBuffer.Release();
         brushWeightBuffer.Release();
     }
+
 }

@@ -6,166 +6,182 @@ using UnityEngine;
 public class MapGenerator : MonoBehaviour
 {
 
-    public enum DrawMode { NoiseMap, ColorMap, Mesh};
-    public const int mapChunkSize = 241;
+	public enum DrawMode { NoiseMap, ColourMap, Mesh };
+	public DrawMode drawMode;
 
-    [Header("Mesh Settings")]
-    public DrawMode drawMode;
-    [Range(0, 6)]
-    public int levelOfDetail;
-    public float meshHeightMultiplier;
-    public int seed;
-    public float noiseScale;
-    public int octaves;
-    public float lacunarity;
-    [Range(0, 1)]
-    public float persistance;
-    public Vector2 offset;
-    public AnimationCurve meshHeightCurve;
-    public bool autoUpdate;
+	public const int mapChunkSize = 241;
+	[HideInInspector]
+	public int mapSizeWithBorder;
 
-    [Header("Material Stuff")]
-    public TerrainType[] regions;
+	[Range(0, 6)]
+	public int editorPreviewLOD;
+	public float noiseScale;
 
-    [Header("Erosion Settings")]
-    public ComputeShader erosionShader;
-    public Erosion erosion;
-    public int numErosionIterations = 50000;
-    public int erosionBrushRadius = 3;
+	public int octaves;
+	[Range(0, 1)]
+	public float persistance;
+	public float lacunarity;
 
-    public int maxLifetime = 30;
-    public float sedimentCapacityFactor = 3;
-    public float minSedimentCapacity = .01f;
-    public float depositSpeed = 0.3f;
-    public float erodeSpeed = 0.3f;
+	public int seed;
+	public Vector2 offset;
 
-    public float evaporateSpeed = .01f;
-    public float gravity = 4;
-    public float startSpeed = 1;
-    public float startWater = 1;
-    [Range(0, 1)]
-    public float inertia = 0.3f;
+	public float meshHeightMultiplier;
+	public AnimationCurve meshHeightCurve;
 
-    // Internal
-    int mapSizeWithBorder;
-    Queue<MapThreadInfo<MapData>> mapDataThreadQueue = new Queue<MapThreadInfo<MapData>>();
-    Queue<MapThreadInfo<MeshData>> meshDataThreadQueue = new Queue<MapThreadInfo<MeshData>>();
+	public bool autoUpdate;
+
+	public TerrainType[] regions;
+
+	public ComputeShader heightMapComputeShader;
+
+	//private
+	bool inEditor = false;
+
+	Erosion erosion;
+
+	Queue<float[]> noiseMapQueue = new Queue<float[]>();
+	Queue<MapThreadInfo<MapData>> mapDataThreadInfoQueue = new Queue<MapThreadInfo<MapData>>();
+	Queue<MapThreadInfo<MeshData>> meshDataThreadInfoQueue = new Queue<MapThreadInfo<MeshData>>();
 
     private void Start()
     {
-        //DrawMap();
+		GameObject editorPreviewMesh = GameObject.Find("Mesh");
+		editorPreviewMesh.SetActive(false);
+		erosion = GetComponent<Erosion>();
+		mapSizeWithBorder = mapChunkSize + erosion.erosionBrushRadius * 2;
     }
 
-    private void Update()
-    {
-        if (mapDataThreadQueue.Count > 0)
-        {
-            for (int i = 0; i < mapDataThreadQueue.Count; i++)
-            {
-                MapThreadInfo<MapData> threadInfo = mapDataThreadQueue.Dequeue();
-                threadInfo.callback(threadInfo.parameter);
-            }
-        }
-        if (meshDataThreadQueue.Count > 0)
-        {
-            for (int i = 0; i < meshDataThreadQueue.Count; i++)
-            {
-                MapThreadInfo<MeshData> threadInfo = meshDataThreadQueue.Dequeue();
-                threadInfo.callback(threadInfo.parameter);
-            }
-        }
-    }
+	private void Update()
+	{
+		if (noiseMapQueue.Count > 0)
+		{
+			for (int i = 0; i < noiseMapQueue.Count; i++)
+			{
+				float[] map = noiseMapQueue.Dequeue();
+				erosion.Erode(mapSizeWithBorder, map);
+			}
+		}
 
-    public void DrawMap()
-    {
-        float[] noiseMap = GenerateNoiseMap();
-        MapData mapData = GenerateMapData(noiseMap);
-        MapDisplay display = FindObjectOfType<MapDisplay>();
-        if (drawMode == DrawMode.NoiseMap) display.DrawTexture(TextureGenerator.TextureFromHeightMap(mapData.noiseMap));
-        else if (drawMode == DrawMode.ColorMap) display.DrawTexture(TextureGenerator
-            .TextureFromColorMap(mapData.colorMap, mapSizeWithBorder, mapSizeWithBorder));
-        else if (drawMode == DrawMode.Mesh) display.DrawMesh(MeshGenerator
-            .GenerateTerrainMesh(mapData.noiseMap, meshHeightMultiplier, meshHeightCurve, levelOfDetail, mapChunkSize, mapSizeWithBorder, erosionBrushRadius, noiseScale), TextureGenerator.TextureFromColorMap(mapData.colorMap, mapSizeWithBorder, mapSizeWithBorder));
-    }
+		if (mapDataThreadInfoQueue.Count > 0)
+		{
+			for (int i = 0; i < mapDataThreadInfoQueue.Count; i++)
+			{
+				MapThreadInfo<MapData> threadInfo = mapDataThreadInfoQueue.Dequeue();
+				threadInfo.callback(threadInfo.parameter);
+			}
+		}
 
-    public void RequestMapData(Action<MapData> callback)
-    {
-        float[] noiseMap = GenerateNoiseMap();
-        
+		if (meshDataThreadInfoQueue.Count > 0)
+		{
+			for (int i = 0; i < meshDataThreadInfoQueue.Count; i++)
+			{
+				MapThreadInfo<MeshData> threadInfo = meshDataThreadInfoQueue.Dequeue();
+				threadInfo.callback(threadInfo.parameter);
+			}
+		}
+	}
+
+	public void DrawMapInEditor()
+	{
+		inEditor = true;
+		erosion = GetComponent<Erosion>();
+		MapData mapData = GenerateMapData(Vector2.zero);
+		mapSizeWithBorder = mapChunkSize + erosion.erosionBrushRadius * 2;
+
+		MapDisplay display = FindObjectOfType<MapDisplay>();
+		if (drawMode == DrawMode.NoiseMap)
+		{
+			display.DrawTexture(TextureGenerator.TextureFromHeightMap(mapData.heightMap));
+		}
+		else if (drawMode == DrawMode.ColourMap)
+		{
+			display.DrawTexture(TextureGenerator.TextureFromColorMap(mapData.colorMap, mapSizeWithBorder, mapSizeWithBorder));
+		}
+		else if (drawMode == DrawMode.Mesh)
+		{
+			display.DrawMesh(MeshGenerator.GenerateTerrainMesh(mapData.heightMap, mapSizeWithBorder, mapSizeWithBorder, meshHeightMultiplier, meshHeightCurve, editorPreviewLOD), TextureGenerator.TextureFromColorMap(mapData.colorMap, mapSizeWithBorder, mapSizeWithBorder));
+		}
+	}
+
+    public void RequestMapData(Vector2 centre, Action<MapData> callback)
+	{
         ThreadStart threadStart = delegate
         {
-            MapDataThread(callback, noiseMap);
+            MapDataThread(centre, callback);
         };
 
         new Thread(threadStart).Start();
     }
-    
-    private void MapDataThread(Action<MapData> callback, float[] noiseMap)
+
+    private void MapDataThread(Vector2 centre, Action<MapData> callback)
     {
-        MapData mapData = GenerateMapData(noiseMap);
-        
-        lock(mapDataThreadQueue)
+        MapData mapData = GenerateMapData(centre);
+
+        lock (mapDataThreadInfoQueue)
         {
-            mapDataThreadQueue.Enqueue(new MapThreadInfo<MapData>(callback, mapData));
+            mapDataThreadInfoQueue.Enqueue(new MapThreadInfo<MapData>(callback, mapData));
         }
     }
 
-    public void RequestMeshData(MapData mapData, Action<MeshData> callback)
-    {
-        ThreadStart threadStart = delegate
-        {
-            MeshDataThread(mapData, callback);
-        };
+	public void RequestMeshData(MapData mapData, int lod, Action<MeshData> callback)
+	{
+		ThreadStart threadStart = delegate 
+		{
+			MeshDataThread(mapData, lod, callback);
+		};
 
-        new Thread(threadStart).Start();
+		new Thread(threadStart).Start();
+	}
+
+	void MeshDataThread(MapData mapData, int lod, Action<MeshData> callback)
+	{
+		MeshData meshData = MeshGenerator.GenerateTerrainMesh(mapData.heightMap, mapSizeWithBorder, mapSizeWithBorder, meshHeightMultiplier, meshHeightCurve, lod);
+		lock (meshDataThreadInfoQueue)
+		{
+			meshDataThreadInfoQueue.Enqueue(new MapThreadInfo<MeshData>(callback, meshData));
+		}
+	}
+
+	private float[] GenerateNoiseMap(Vector2 centre)
+    {
+        mapSizeWithBorder = mapChunkSize + erosion.erosionBrushRadius * 2;
+        float[] noiseMap = Noise.GenerateNoiseMap(mapSizeWithBorder, mapSizeWithBorder, seed, noiseScale, octaves, persistance, lacunarity, centre + offset);
+		noiseMapQueue.Enqueue(noiseMap);
+
+		if (inEditor)
+		{
+			erosion.Erode(mapSizeWithBorder, noiseMap);
+		}
+		else
+		{
+			Thread.Sleep(600);
+		}
+
+		return noiseMap;
     }
-
-    private void MeshDataThread(MapData mapData, Action<MeshData> callback)
+    private MapData GenerateMapData(Vector2 centre)
     {
-        MeshData meshData = MeshGenerator
-            .GenerateTerrainMesh(mapData.noiseMap, meshHeightMultiplier, meshHeightCurve, levelOfDetail, mapChunkSize, mapSizeWithBorder, erosionBrushRadius, noiseScale);
-        
-        lock (meshDataThreadQueue)
-        {
-            meshDataThreadQueue.Enqueue(new MapThreadInfo<MeshData>(callback, meshData));
-        }
-    }
-
-    private float[] GenerateNoiseMap()
-    {
-        mapSizeWithBorder = mapChunkSize + erosionBrushRadius * 2;
-        float[] noiseMap = Noise.GenerateNoiseMap(mapSizeWithBorder, mapSizeWithBorder, seed, noiseScale, octaves, persistance, lacunarity, offset);
-
-        erosion.Erode(erosionShader, numErosionIterations, erosionBrushRadius, mapSizeWithBorder, noiseMap, maxLifetime, inertia, sedimentCapacityFactor, minSedimentCapacity, depositSpeed, erodeSpeed, evaporateSpeed, gravity, startSpeed, startWater);
-
-        return noiseMap;
-    }
-    private MapData GenerateMapData(float[] noiseMap)
-    {
-       /* mapSizeWithBorder = mapChunkSize + erosionBrushRadius * 2;
-        float[] noiseMap = Noise.GenerateNoiseMap(mapSizeWithBorder, mapSizeWithBorder, seed, noiseScale, octaves, persistance, lacunarity, offset);
-
-        erosion.Erode(erosionShader, numErosionIterations, erosionBrushRadius, mapSizeWithBorder, noiseMap, maxLifetime, inertia, sedimentCapacityFactor, minSedimentCapacity, depositSpeed, erodeSpeed, evaporateSpeed, gravity, startSpeed, startWater);*/
+		float[] noiseMap = GenerateNoiseMap(centre);
 
         Color[] colorMap = new Color[mapSizeWithBorder * mapSizeWithBorder];
-        for (int y = 0; y < mapSizeWithBorder; y++)
-        {
-            for (int x = 0; x < mapSizeWithBorder; x++)
-            {
-                float currentHeight = noiseMap[x * mapSizeWithBorder + y];
-                for (int i = 0; i < regions.Length; i++)
-                {
-                    if (currentHeight <= regions[i].height)
-                    {
-                        colorMap[y * mapSizeWithBorder + x] = regions[i].color;
-                        break;
-                    }
-                }
-            }
+		for (int y = 0; y < mapSizeWithBorder; y++)
+		{
+			for (int x = 0; x < mapSizeWithBorder; x++)
+			{
+				float currentHeight = noiseMap[x * mapSizeWithBorder + y];
+				for (int i = 0; i < regions.Length; i++)
+				{
+					if (currentHeight <= regions[i].height)
+					{
+						colorMap[y * mapSizeWithBorder + x] = regions[i].color;
+						break;
+					}
+				}
+			}
 
-        }
+		}
 
-        return new MapData(noiseMap, colorMap);
+		return new MapData(noiseMap, colorMap);
     }
 
     private void OnValidate()
@@ -173,7 +189,7 @@ public class MapGenerator : MonoBehaviour
         if (lacunarity < 1) lacunarity = 1;
         if (octaves < 0) octaves = 0;
     }
-   
+
     struct MapThreadInfo<T>
     {
         public readonly Action<T> callback;
@@ -190,20 +206,21 @@ public class MapGenerator : MonoBehaviour
 [System.Serializable]
 public struct TerrainType
 {
-    public string name;
-    public float height;
-    public Color color;
-    public Texture2D texture;
+	public string name;
+	public float height;
+	public Color color;
 }
 
 public struct MapData
 {
-    public readonly float[] noiseMap;
-    public readonly Color[] colorMap;
+	public readonly float[] heightMap;
+	public readonly Color[] colorMap;
+	public bool generatingErosion;
 
-    public MapData(float[] noiseMap, Color[] colorMap)
-    {
-        this.noiseMap = noiseMap;
-        this.colorMap = colorMap;
-    }
+	public MapData(float[] heightMap, Color[] colourMap)
+	{
+		this.heightMap = heightMap;
+		this.colorMap = colourMap;
+		this.generatingErosion = false;
+	}
 }
