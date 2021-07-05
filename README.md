@@ -1,2 +1,2 @@
 # Procedural-Land
- Infinite procedural landscapes with simulated hydraulic erosion, WARNING: its a bit jank right now and is not even close to finished! 
+ Practice utilizing noise for infinite procedural landscapes and some additional practice utilizing shaders for simulated hydraulic erosion. WARNING: Due to communication from CPU to shader not being thread safe there is some janky-ness and performance issues. A possible fix would be to utilize Unitys job system and get rid of the hydraulic erosion in favor of faked erosion with noise. 
